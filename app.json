@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "AnimalEye",
+    "slug": "animaleye",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#05070B",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AnimalEye lets you choose photos of animals you've seen so they can be identified.",
+          "cameraPermission": "AnimalEye uses the camera to photograph animals so they can be identified."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AnimalEye records where you saw each animal. You can deny this and still use the app."
+        }
+      ]
+    ]
+  }
+}

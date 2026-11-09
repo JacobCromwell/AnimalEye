@@ -1,7 +1,7 @@
 # AnimalEye — Product Spec (working draft)
 
 > "AnimalEye" is a placeholder name.
-> Status: gathering requirements. This file records decisions as they're made and lists what's still open.
+> This file records every decision made so far and lists what's still open. Technical layout: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Vision
 
@@ -10,92 +10,77 @@ A phone app that gets people outdoors and enjoying nature. Users photograph anim
 ## Hard rules
 
 1. **No secrets in the codebase, ever.** API keys, passwords, tokens and connection strings are never hard-coded or committed.
-   - AI provider keys live **only on the server**. Anything shipped inside the app or the browser bundle is effectively public, so the app never holds a provider key, not even one injected at build time.
-   - Production: keys live in the hosting platform's secret storage (e.g., Supabase secrets).
-   - Local development: keys go in a gitignored `.env` file. A committed `.env.example` lists variable names with no values.
-   - A secret scanner should block commits that contain anything that looks like a key.
-2. **The identification model must be easy to swap.** Each provider (Claude, other vendors, a mock, a future self-hosted model) is an adapter behind one interface, and config picks which one runs. Each model's answer is normalized to a stable taxon ID from a public taxonomy, so user lists and the tree never depend on which model produced them.
+   - AI provider keys live **only on the server**. Anything shipped inside the app or the browser bundle is effectively public, so the app never holds a provider key.
+   - Production: keys live in Supabase's secret storage. Local development: keys go in gitignored `.env` files. The committed `.env.example` files list variable names with no values.
+   - CI runs a secret scanner (gitleaks) on every push.
+2. **The identification model must be easy to swap.** Each provider (mock, Claude, a generic HTTP endpoint for a future self-hosted model) is an adapter behind one interface, and an environment variable picks which one runs. Results are resolved to the app's taxonomy IDs, so lists and the tree never depend on which model produced them.
 
-## Decisions (Round 1 — 2026-11-08)
+## Decisions
 
 ### Platforms and workflow
-- Targets iOS and Android, plus a browser build for testing locally on Windows with VS Code.
-- Owner tests on both iPhone and Android devices.
-- Owner knows TypeScript, React and Git. Node.js is installed on the dev machine.
+- iOS and Android, plus a browser build for local testing on Windows with VS Code.
+- **Stack: Expo SDK 58 (React Native) + TypeScript.** Backend: **Supabase**.
+- Owner tests on iPhone and Android. Node.js and Docker Desktop are installed on the dev machine.
 - Repo is public. Commits go straight to `main`.
-- Stack: **proposed** Expo (React Native) + TypeScript. Awaiting confirmation.
 
 ### The tree
-- Visual reference: [`docs/design/tree-concept.png`](design/tree-concept.png). Dark background, glowing gradient branches colored by animal group, labels along the branches, animal images at the leaves.
-- Only living animals; no extinct ones.
-- Starts **collapsed** and shows commonly encountered animals.
-- Branches fan out as the user finds animals. Example: photographing a house cat fills that leaf and reveals its neighbors (bobcat, mountain lion, …).
-- Insects and other bugs: only common species people meet in everyday life. Exotic ones (e.g., rainforest species) stay out of the default tree. Microorganisms are not shown.
-- Hard-to-define and very rare animals are left out of the default tree.
-- Tapping a find shows the user's own photo plus the date, time and place.
+- Visual reference: [`docs/design/tree-concept.png`](design/tree-concept.png). Dark background, glowing gradient branches colored by animal group, labels along the branches.
+- Living animals only. **Familiar groups** (Mammals, Birds, Reptiles, Amphibians, Fish, Insects, Spiders & kin, Other invertebrates), not strict evolutionary relationships.
+- Starts **collapsed** and shows commonly encountered animals. Branches fan out as the user finds things: finding a house cat lights up that leaf and reveals its neighbors (bobcat, mountain lion, …).
+- Undiscovered neighbors appear as a **silhouette with a name**.
+- Bugs: only common, everyday species. Exotic, very rare and hard-to-define animals stay out of the default tree.
+- **A find outside the curated tree still gets its own branch** on that user's tree, attached at the closest matching group.
+- **Region-specific** neighbors, with a **Global** default. The user picks a region in Settings.
+- Curated tree target: about 2,000 species, built from public observation data plus all common pets and farm animals. (Milestone 1 ships a hand-curated seed of about 230 species.)
+- Repeat sightings of a species: one leaf, every sighting kept, and the user picks the cover photo.
+- Tapping a find shows the user's photo plus date, time and place.
 
-### What counts as an animal
-- All animal groups, curated as described above.
-- Pets and farm animals count.
-- Plants and fungi are out for v1, possibly added later.
+### What counts
+- All animal groups (curated as above). Pets and farm animals count.
+- Plants and fungi are out for v1 and may come later.
 
 ### Identification
-- When the model can't reach species level, the find is saved at the most specific level it's confident of (e.g., "a hawk").
-- Users can correct an ID for themselves. The database stores **both** the model's answer and the user's correction. A setting must be able to disable user corrections later.
-- Photos can come from the camera or the photo gallery.
-- Offline: the photo is saved and queued, then identified once the phone is back online.
-- Providers for now: a **mock** identifier (free, no key) and **Claude** for real testing. Leave a seam for a future self-hosted model; no current plans for one.
-- **Limit: 5 identifications per user per day.** Admin accounts (the owner) are unlimited.
-- No AI budget yet. It will be set after talks with AI providers.
+- When the model isn't sure of the species, the find is saved at the most specific level it is sure of (e.g., "a hawk").
+- The model's best guess is accepted automatically. Users can **correct** it for themselves. The server stores the model's answer and the app stores the user's correction separately (both sync to the server in milestone 2). A config flag (`EXPO_PUBLIC_ALLOW_USER_CORRECTIONS`) can switch corrections off; a server-side switch can come later.
+- Photos can come from the camera or the gallery.
+- Offline: the photo is queued and identified once the phone is back online.
+- Providers: **mock** (free, no key) and **Claude**. A generic **HTTP** provider is the seam for a future self-hosted model.
+- **Limit: 5 identifications per user per day** (days reset at UTC midnight). Failed attempts count. After the limit, photos queue until the next day. **Admins are unlimited** (the only admin power for now).
+- The identifier also flags photos showing **people** (the photo is discarded and the sighting kept) or **inappropriate content** (rejected entirely).
+- No AI budget yet. It will be set after talks with providers.
 
-### Data and backend
-- v1 has no sign-up screen ("phone only").
-- The server will run on Supabase or AWS; the owner has accounts on both.
-- Store compressed copies of photos.
-- Record location when available. A sighting is still saved without one.
-- Long-term goal: offer sighting data to researchers.
+### Accounts and data
+- **Supabase anonymous accounts**: an account is created silently on first launch, with no sign-up screen. Users can link email/Apple/Google later and keep their data.
+- No account is created until the user passes the age question.
+- Every sighting records **provenance**: camera or gallery, where the date came from (capture time / photo metadata / none) and where the location came from (device GPS / photo metadata / none).
+- Exact location is stored. Other users will see only a coarse area, with rare and endangered species blurred further (applies once social features exist).
+- Compressed photos are kept. The app currently keeps a small thumbnail locally; server photo storage comes in milestone 2.
+- Sharing with researchers is **opt-in**, asked during onboarding. Nothing is shared until the user says yes.
 
 ### Audience
-- Not for children under 13 in v1, to avoid COPPA obligations for now. Revisit later.
+- **13+.** A neutral age question on first launch, asking birth month and year without hinting at the cutoff. Under-13s are turned away; only the pass/fail result is stored. A mature visual style and no marketing aimed at kids. Get a lawyer's review before public launch.
 
-### Social
-- Wanted: sharing finds, friends, leaderboards, rarity scores. Not yet phased.
+### Social (after the first milestone, in this order)
+1. Sharing finds 2. Friends 3. Leaderboards.
+- Only **camera-taken finds whose model ID wasn't overridden** count toward leaderboards and rarity.
+- Rarity starts from worldwide observation data and may later blend in AnimalEye's own data.
 
-### First milestone
-Take or upload a photo → identify it (mock or Claude) → confirm or correct → it's saved to the user's list → it appears on the tree. All of this runs in Chrome on Windows.
+## Milestones
 
-## Open questions (Round 2)
+### Milestone 1 — the core loop (in progress)
+Take or upload a photo → identify it (mock in the app, or mock/Claude through the local Supabase server) → the find appears on the tree and in the collection → the user can correct it. Runs in Chrome on Windows and in Expo Go.
 
-### Resolving conflicts between answers
-- **A. Accounts:** use Supabase anonymous sign-in (an account created silently on first launch, no sign-up screen) so the daily limit, admin exemption, stored corrections, science data and social features all work. Users can link email/Apple/Google later without losing data. *Proposed.*
-- **B. Backend:** Supabase (auth, Postgres, photo storage, server functions holding the AI key) instead of AWS, with the AI layer kept portable. *Proposed.*
-- **C. Fair leaderboards:** only camera-taken finds with an un-overridden model ID count toward leaderboards and rarity. Gallery uploads and user-corrected finds still appear on the personal tree. *Proposed.*
-- **D. Location privacy:** store exact location, show other users only a coarse area, and blur rare or endangered species further. *Proposed.*
-- **E. Age positioning:** present the app as 13+ (not "all ages"), with a neutral age question on first launch, a mature visual style, and no kid-targeted marketing. Get a lawyer's review before public launch. *Proposed.*
-- **Always record provenance:** whether each photo came from the camera or the gallery, and where its date and location came from (device GPS, photo metadata, entered by the user, none), so researchers can filter. *Decided unless the owner objects.*
+### Milestone 2 — sync and storage
+Sightings, corrections and compressed photos sync to Supabase; data survives reinstalling the app once an account is linked; a server-side corrections switch.
 
-### Tree
-- Should "common" be one global set or depend on the user's region?
-- How many species should the curated tree hold in total?
-- If a user finds an animal that isn't in the curated tree, does it still get added to their tree?
-- How are undiscovered neighbors shown: silhouette + name, silhouette only, or name only?
-- Strict evolutionary relationships (birds inside reptiles, "fish" not a single branch) or familiar groups as in the concept chart?
-- Multiple sightings of the same species: one leaf with many sightings, plus a user-chosen cover photo?
+### Later
+Taxonomy build pipeline (~2,000 species with GBIF/iNaturalist IDs, regional lists, rarity), real silhouettes (open-licensed, with attribution), automatic region detection, social features, admin tools, app-store release.
 
-### Identification and limits
-- After the 5th ID of the day: block new photos, or queue them for tomorrow?
-- Does a failed identification (no animal found, blurry photo) count toward the limit?
-- Screening photos: don't store or share photos showing people or inappropriate content?
-
-### Science, social and admin
-- Sharing with researchers: opt-in during onboarding? Under which data license?
-- Rarity: based on global observation data, on rarity among AnimalEye users, or a blend?
-- Order of social features after the first milestone.
-- Admin powers beyond unlimited IDs.
-
-### Setup
-- Is Docker Desktop installed (needed to run Supabase locally), or should we use a free hosted dev project?
-- Does the owner have an Anthropic **API** key (console.anthropic.com)? It's separate from a Claude.ai subscription.
-
-### Later rounds
-Look and feel, animal facts and their sources, notifications, a reminder not to approach wildlife, monetization, naming, app-store release (developer accounts, possibly under the owner's LLC), privacy policy and terms.
+## Open questions (Round 3 — when convenient)
+- **Look and feel:** apps whose style you love? Dark only, or light too? Any colors or fonts you have in mind?
+- **Animal facts:** what to show per animal (description, conservation status, fun facts)? Sources need compatible licenses (e.g., Wikipedia requires attribution).
+- **Safety messaging:** a gentle "keep your distance from wildlife" note, and where it should appear.
+- **Notifications:** any? (e.g., "your queued photos were identified")
+- **Monetization** ideas, if any, and the **name**.
+- **App-store release:** Apple/Google developer accounts — under the planned LLC?
+- **Privacy policy and terms:** needed before release, especially for location data and research sharing.

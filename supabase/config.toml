@@ -1,0 +1,16 @@
+# Local Supabase settings used by `npx supabase start`. Values not listed here use the
+# CLI's defaults. If the CLI ever complains about this file, compare it with a fresh
+# `npx supabase init` in a scratch folder and copy the missing sections across.
+
+project_id = "animaleye"
+
+[auth]
+enabled = true
+site_url = "http://localhost:8081"
+# Every install gets an account silently on first launch (after the age screen).
+enable_anonymous_sign_ins = true
+
+[functions.identify]
+# The function verifies the caller's session itself (works with both legacy JWTs and
+# the new signing keys), so the gateway check is off.
+verify_jwt = false
